@@ -4,10 +4,11 @@ const nextConfig = {
         remotePatterns: [
             {
                 protocol: "https",
-                hostname: "cdn.sanity.io"
+                hostname: "cdn.sanity.io",
+                port: ""
             }
         ]
     }
 };
 
-export default nextConfig;
+module.exports = nextConfig;

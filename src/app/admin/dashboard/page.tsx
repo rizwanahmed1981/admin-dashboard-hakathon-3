@@ -6,6 +6,7 @@ import { urlFor } from "@/sanity/lib/image";
 import Image from 'next/image'
 import React, { useEffect, useState } from "react";
 import Swal from "sweetalert2";
+import { useRouter } from "next/navigation";
 
 
 
@@ -24,13 +25,13 @@ interface Order {
     orderDate: string;
     status: string | null;
     cartItems: {
-        map(arg0: (item: any) => any): React.ReactNode | Iterable<React.ReactNode>; title: string, image: string 
-}
+        map(arg0: (item: any) => any): React.ReactNode | Iterable<React.ReactNode>; title: string, image: string
+    }
 }
 
 
 export default function AdminDashboard() {
-
+    const router = useRouter();
     const [orders, setOrders] = useState<Order[]>([])
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
     const [filter, setFilter] = useState("All")
@@ -61,143 +62,234 @@ export default function AdminDashboard() {
             .catch((error) => console.log("error fetching product", error))
     }, [])
 
-    const filteredOreder = filter === "All" ? orders : orders.filter((order) => order.status === filter)
+    const filteredOrders = filter.toLowerCase() === "all"
+        ? orders
+        : orders.filter((order) => {
+            const orderStatus = order.status?.toLowerCase() || "pending";
+            return orderStatus === filter.toLowerCase();
+        });
 
     const toggleOrderDetails = (orderId: string) => {
         setSelectedOrderId((prev) => (prev === orderId ? null : orderId))
+    }
 
-        const handleDelete = async (orderId: string) => {
-            const result = await
-                Swal.fire({
-                    title: 'Are you sure?',
-                    text: "You won't be able to revert this!",
-                    icon: 'warning',
-                    showCancelButton: true,
-                    confirmButtonColor: '#3085d6',
-                    cancelButtonColor: '#d33',
-                    confirmButtonText: 'Yes, delete it!'
-                })
-            if (!result.isConfirmed) return
+    const handleStatus = async (orderId: string, newStatus: string) => {
+        try {
+            // Update the status in Sanity
+            await client
+                .patch(orderId)
+                .set({ status: newStatus.toLowerCase() }) // Ensure consistent case
+                .commit();
 
-            try {
-                await client.delete(orderId)
-                setOrders((prevOrder) => prevOrder.filter((order) => order._id !== orderId))
-                Swal.fire('Deleted!', 'Your order has been deleted.', 'success')
-            }
-            catch (error) {
-                console.error("Error deleting order", error)
-                Swal.fire('Error!', 'Something went wrong while deleting the order.', 'error')
-            }
-        }
-
-        const handleStatusChange = async (orderId: string, newStatus: string) => {
-            try {
-                await client
-                    .patch(orderId)
-                    .set({ statud: newStatus })
-                    .commit()
-
-                setOrders((prevOrder) => prevOrder.map((order) => order._id === orderId ? {
-                    ...order,
-                    status: newStatus,
-
-                } : order)
+            // Update local state
+            setOrders((prevOrders) =>
+                prevOrders.map((order) =>
+                    order._id === orderId
+                        ? { ...order, status: newStatus.toLowerCase() }
+                        : order
                 )
-                if (newStatus === "dispatch") {
-                    Swal.fire("order dispatched", "your Order has been Dispatched", "success")
-                }
-                else if (newStatus === "success") {
-                    Swal.fire("succes", "your Order has been Delivered", "success")
-                }
+            );
+
+            // Show success message based on status
+            if (newStatus === "dispatch") {
+                Swal.fire({
+                    title: "Order Dispatched",
+                    text: "Order has been marked as dispatched",
+                    icon: "success"
+                });
+            } else if (newStatus === "success") {
+                Swal.fire({
+                    title: "Order Delivered",
+                    text: "Order has been marked as delivered",
+                    icon: "success"
+                });
+            } else if (newStatus === "pending") {
+                Swal.fire({
+                    title: "Order Pending",
+                    text: "Order has been marked as pending",
+                    icon: "info"
+                });
             }
-            catch (error) {
-                Swal.fire('Error!', 'Something went wrong while updating the order status.', 'error')
-            }
+        } catch (error) {
+            console.error("Error updating status:", error);
+            Swal.fire({
+                title: "Error!",
+                text: "Failed to update order status",
+                icon: "error"
+            });
         }
-    }
-    function handleStatus(_id: string, value: string): void {
-        throw new Error("function not implemented");
-    }
-    function handleDelete(_id: string) {
-        throw new Error("Function not implemented.");
-    }
+    };
+
+    const handleDelete = async (orderId: string) => {
+        try {
+            // Show confirmation dialog
+            const result = await Swal.fire({
+                title: "Are you sure?",
+                text: "You won't be able to revert this!",
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonColor: "#3085d6",
+                cancelButtonColor: "#d33",
+                confirmButtonText: "Yes, delete it!"
+            });
+
+            // If user confirms deletion
+            if (result.isConfirmed) {
+                // Delete from Sanity
+                await client.delete(orderId);
+
+                // Update local state
+                setOrders((prevOrders) =>
+                    prevOrders.filter(order => order._id !== orderId)
+                );
+
+                // Show success message
+                Swal.fire({
+                    title: "Deleted!",
+                    text: "Order has been deleted successfully",
+                    icon: "success"
+                });
+
+                // Close order details if it was open
+                if (selectedOrderId === orderId) {
+                    setSelectedOrderId(null);
+                }
+            }
+        } catch (error) {
+            console.error("Error deleting order:", error);
+            Swal.fire({
+                title: "Error!",
+                text: "Failed to delete the order",
+                icon: "error"
+            });
+        }
+    };
+
+    const handleSignOut = () => {
+        try {
+            // Clear admin authentication data
+            localStorage.removeItem("adminToken");
+            localStorage.removeItem("isAdmin");
+
+            // Show success message
+            Swal.fire({
+                title: "Signed Out",
+                text: "You have been successfully signed out",
+                icon: "success",
+                timer: 1500
+            }).then(() => {
+                // Redirect to login page
+                router.push("/admin");
+            });
+        } catch (error) {
+            console.error("Error signing out:", error);
+            Swal.fire({
+                title: "Error",
+                text: "Failed to sign out",
+                icon: "error"
+            });
+        }
+    };
 
     return (
         <ProtectedRoute>
             <div className="flex flex-col h-screen bg-grey-100">
-                <nav className="bg-green-600 text-blue p-4 shadow-lg flex justify-between">
+                <nav className="bg-green-600 text-blue p-4 shadow-lg flex justify-between items-center">
                     <h2 className="text-2xl">
                         ADMIN DASHBOARD
                     </h2>
-                    <div className="flex space-x-4">
-                        {["All", "pending", "success", "dispatch"].map((status) => (
-                            <button key={status}
-                                className={`px-4 py-2 rounded-lg transition-all ${filter === status ? "bg-green-700 text-red font-bold" : "text-gray-700"}`} onClick={() => setFilter(status)}>
-                                {status.charAt(0).toUpperCase() + status.slice(1)}
-
-                            </button>
-                        ))}
-
+                    <div className="flex items-center space-x-4">
+                        <div className="flex space-x-4">
+                            {["All", "pending", "dispatch", "success"].map((status) => (
+                                <button
+                                    key={status}
+                                    className={`px-4 py-2 rounded-lg transition-all ${filter.toLowerCase() === status.toLowerCase()
+                                        ? "bg-green-700 text-white font-bold"
+                                        : "bg-white text-gray-700 hover:bg-green-50"
+                                        }`}
+                                    onClick={() => setFilter(status)}
+                                >
+                                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                                    <span className="ml-2 px-2 py-1 text-sm bg-gray-200 rounded-full">
+                                        {orders.filter(order =>
+                                            (order.status?.toLowerCase() || "pending") === status.toLowerCase()
+                                        ).length}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={handleSignOut}
+                            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all"
+                        >
+                            Sign Out
+                        </button>
                     </div>
                 </nav>
                 <div className="flex-1 p-6 overflow-y-auto">
-                    <h2 className="text-2xl font-bold text-center">
-                        Orders
+                    <h2 className="text-2xl font-bold text-center mb-6">
+                        {filter === "All" ? "All Orders" : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Orders`}
                     </h2>
-                    <div className="overflow-y-auto bg-white rounded-lg shadow-lg">
-                        <table>
-                            <thead>
+                    <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Customer Name</th>
-                                    <th>Phone</th>
-                                    <th>Date</th>
-                                    <th>Total</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-grey-200">
-                                {filteredOreder.map((order) => (
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {filteredOrders.map((order) => (
                                     <React.Fragment key={order._id}>
-                                        <tr
-                                            className="cursor-pointer hover:bg-red-100 transition-all"
-                                            onClick={() => toggleOrderDetails(order._id)}>
-                                            <td>
+                                        <tr className="hover:bg-gray-50">
+                                            <td className="px-6 py-4">
                                                 {order._id}
                                             </td>
-                                            <td>
+                                            <td className="px-6 py-4">
                                                 {order.firstName} {order.lastName}
                                             </td>
-                                            <td>
+                                            <td className="px-6 py-4">
                                                 {order.address}
                                             </td>
-                                            <td>
+                                            <td className="px-6 py-4">
                                                 {new Date(order.orderDate).toLocaleDateString()}
                                             </td>
-                                            <td>
+                                            <td className="px-6 py-4">
                                                 {order.total}
                                             </td>
+                                            <td className="px-6 py-4">
+                                                <select
+                                                    value={order.status || "pending"}
+                                                    onChange={(e) => handleStatus(order._id, e.target.value)}
+                                                    className={`px-3 py-1 rounded-full text-sm font-medium ${order.status === 'success'
+                                                        ? 'bg-green-100 text-green-800'
+                                                        : order.status === 'dispatch'
+                                                            ? 'bg-yellow-100 text-yellow-800'
+                                                            : 'bg-gray-100 text-gray-800'
+                                                        }`}
+                                                >
+                                                    <option value="pending">Pending</option>
+                                                    <option value="dispatch">Dispatched</option>
+                                                    <option value="success">Delivered</option>
+                                                </select>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDelete(order._id);
+                                                    }}
+                                                    className="bg-red-500 text-white rounded-lg px-3 py-1 hover:bg-red-700 transition"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </td>
                                         </tr>
-                                        <td>
-                                            <select value={order.status || ""} onChange={(e) => handleStatus(order._id, e.target.value)}
-                                                className="bg-grey-100 p-1 rounded"
-                                            >
-                                                <option value="pending">Pending</option>
-                                                <option value="success">Success</option>
-                                                <option value="dispatch">Dispatched</option>
-                                            </select>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <button onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(order._id)
-                                            }}
-                                                className="bg-red-500 text-white rounded-lg px-3 py-1 hover:bg-red-700 transition"
-                                            >
-                                                Delete
-                                            </button>
-                                        </td>
                                         {selectedOrderId === order._id && (
                                             <tr>
                                                 <td className="bg-gray-50 p-4 transition-all" colSpan={7}>
@@ -211,34 +303,25 @@ export default function AdminDashboard() {
                                                                 {item.title}
                                                                 {item.productImage && (
                                                                     <Image
-                                                                    src={urlFor(item.productImage).url()}
-                                                                    alt={item.title}
-                                                                    width={100}
-                                                                    height={100} 
+                                                                        src={urlFor(item.productImage).url()}
+                                                                        alt={item.title}
+                                                                        width={100}
+                                                                        height={100}
                                                                     />
                                                                 )}
                                                             </li>
                                                         ))
                                                     }
                                                 </td>
-                                               
                                             </tr>
                                         )}
-
-
                                     </React.Fragment>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-
-
                 </div>
             </div>
-
-        </ProtectedRoute>)
-
-
-
-
+        </ProtectedRoute>
+    );
 }

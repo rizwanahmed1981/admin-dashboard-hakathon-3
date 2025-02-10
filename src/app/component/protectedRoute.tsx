@@ -1,19 +1,19 @@
-'use client'
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function ProtectedRoute({children}: {children : React.ReactNode}){
-    const router = useRouter()
+export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+    const router = useRouter();
 
-    useEffect(()=>{
-        const isLogedin = localStorage.getItem("isLogedin")
-        if(!isLogedin){
-            router.push("/admin")
+    useEffect(() => {
+        const isAdmin = localStorage.getItem('isAdmin');
+        const adminToken = localStorage.getItem('adminToken');
+        
+        if (!isAdmin || !adminToken) {
+            router.push('/admin');
         }
-    },[router])
-    return <>
-    {children}
-    </>
+    }, [router]);
 
+    return <>{children}</>;
 }
